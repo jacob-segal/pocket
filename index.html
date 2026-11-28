@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#070b12"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Bets"><link rel="icon" href="data:,">
+<title>Locked</title>
+<style>
+ body{margin:0;background:#070b12;color:#eaf1fb;font:16px -apple-system,system-ui,sans-serif;min-height:100vh;min-height:100dvh;display:grid;place-items:center}
+ form{width:min(320px,calc(100vw - 48px));display:grid;gap:12px}
+ input,button{font:inherit;padding:14px;border-radius:12px;border:1px solid #1d2838;background:#0f1622;color:inherit}
+ button{background:#3b82f6;border:0;font-weight:600} p{margin:0;color:#8494aa;min-height:1.3em;text-align:center}
+</style></head><body>
+<form id="f" hidden><input id="p" type="password" placeholder="Password" autocomplete="current-password" aria-label="Password"><button>Unlock</button><p id="m"></p></form>
+<p id="w">Loading…</p>
+<script>
+const SALT = "1JJLiGvr9muK2TNsc+yqFA==", ITER = 1000000, WORKER = "// Runs the real My Bets code (Python) on the phone. Only reads; nothing is sent anywhere but ESPN's public feeds.\nconst V = \"https://cdn.jsdelivr.net/pyodide/v314.0.7/full/\";\nlet py, up;\nasync function boot(zip) {\n  const {loadPyodide} = await import(V + \"pyodide.mjs\");\n  py = await loadPyodide({indexURL: V});\n  await py.loadPackage(\"pandas\");\n  py.unpackArchive(Uint8Array.from(atob(zip), c => c.charCodeAt(0)), \"zip\", {extractDir: \"/app\"});\n  py.runPython(`\nimport sys, types, json, os\nsys.path.insert(0, \"/app\"); os.chdir(\"/app\")\nfrom js import XMLHttpRequest\nclass _R:\n    def __init__(self, t): self.text = t\n    def json(self): return json.loads(self.text)\ndef _get(url, **k):\n    x = XMLHttpRequest.new(); x.open(\"GET\", url, False); x.send()\n    if x.status != 200: raise OSError(f\"{x.status}\")\n    return _R(x.responseText)\ndef _mod(name, **a):\n    m = types.ModuleType(name); m.__dict__.update(a); sys.modules[name] = m; return m\n_mod(\"requests\", get=_get)\n_mod(\"dotenv\", load_dotenv=lambda *a, **k: None)\n_T = json.load(open(\"/app/teams.json\"))\n_teams = _mod(\"nba_api.stats.static.teams\", get_teams=lambda: _T)\n_mod(\"nba_api\"); _mod(\"nba_api.stats\"); _mod(\"nba_api.stats.static\", teams=_teams)\nfrom urllib.parse import urlparse, parse_qs\nfrom datetime import date\nfrom bets_page import server as S\ndef route(u):\n    u = urlparse(u)\n    if u.path == \"/api/bets\": o = S.day(parse_qs(u.query).get(\"date\", [date.today().isoformat()])[0])\n    elif u.path == \"/api/history\": o = S.history()\n    elif u.path == \"/api/tonight\": o = S.tonight()\n    elif u.path == \"/api/watchlist\": o = S.watchlist.view()\n    else: raise ValueError(\"not on the phone\")\n    return json.dumps(o)\n`);\n  postMessage({ready: true});\n}\nonmessage = async e => {\n  const m = e.data;\n  if (m.zip) { up = boot(m.zip).catch(x => postMessage({fail: String(x)})); return; }\n  await up;\n  try { const f = py.globals.get(\"route\"); postMessage({id: m.id, out: f(m.url)}); f.destroy(); }\n  catch (x) { postMessage({id: m.id, err: String(x)}); }\n};\n";
+const $$ = id => document.getElementById(id), unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+const idb = (mode, fn) => new Promise((ok, no) => { const o = indexedDB.open("bets", 1);
+  o.onupgradeneeded = () => o.result.createObjectStore("k"); o.onerror = () => no(o.error);
+  o.onsuccess = () => { const r = fn(o.result.transaction("k", mode).objectStore("k")); r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); }; });
+const getKey = () => idb("readonly", s => s.get("key")).catch(() => null);
+const blob = async () => { const r = await fetch("app.bin?" + Date.now(), {cache: "no-store"}); if (!r.ok) throw Error("down"); return r.arrayBuffer(); };
+async function open_(buf, key) {
+  const raw = await crypto.subtle.decrypt({name: "AES-GCM", iv: new Uint8Array(buf, 0, 12)}, key, buf.slice(12));
+  return JSON.parse(await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream("gzip"))).text());
+}
+window.lockPage = () => idb("readwrite", s => s.clear()).finally(() => location.reload());
+function start(app) {
+  window.APP = app;
+  const w = new Worker(URL.createObjectURL(new Blob([WORKER], {type: "text/javascript"})), {type: "module"});
+  let ready = false, n = 0; const wait = {}, flying = {};
+  const note = t => { const e = document.getElementById("phone-note"); if (e) e.textContent = t; };
+  const made = new Date(app.made).toLocaleString([], {month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit"});
+  w.onmessage = e => { const m = e.data;
+    if (m.ready) { ready = true; note("Live scores on · bets as of " + made); try { load($("date").value); loadLists(); if (TAB === "history") loadHistory(); } catch (x) {} return; }
+    if (m.fail) { note("Live scores didn't load · showing " + made); for (const k in wait) wait[k].no(Error(m.fail)); return; }
+    const p = wait[m.id]; delete wait[m.id]; if (p) m.err ? p.no(Error(m.err)) : p.ok(m.out); };
+  w.onerror = () => w.onmessage({data: {fail: "worker"}});
+  const ask = url => flying[url] ||= new Promise((ok, no) => { wait[++n] = {ok, no}; w.postMessage({id: n, url}); }).finally(() => delete flying[url]);
+  const real = window.fetch.bind(window);
+  window.fetch = async (url, o) => {
+    if (!String(url).startsWith("/api/")) return real(url, o);
+    const J = t => new Response(t, {headers: {"Content-Type": "application/json"}});
+    if (o && o.method === "POST") return J('{"ok":false,"error":"View only on the phone"}');
+    if (!ready && app.snap[url]) return J(app.snap[url]);        // saved copy until the live part is up
+    return J(await ask(url));
+  };
+  w.postMessage({zip: app.zip});
+  // new bets synced from the Mac: reload
+  const check = async () => { try { const v = await (await real("v.json?" + Date.now(), {cache: "no-store"})).json(); if (v.v !== app.v) location.reload(); } catch (e) {} };
+  setInterval(() => { if (!document.hidden) check(); }, 180000);
+  const html = app.html; document.open(); document.write(html); document.close();
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) check(); });
+  note("Bets as of " + made + " · loading live scores…");
+}
+(async () => {
+  const buf = await blob().catch(() => null);
+  if (!buf) { $$("w").textContent = "Couldn't load. Check your connection and reopen."; return; }
+  const k = await getKey();
+  if (k) { try { const app = await open_(buf, k); start(app); return; } catch (e) {} }
+  $$("w").hidden = true; $$("f").hidden = false;
+  $$("f").onsubmit = async e => { e.preventDefault(); $$("m").textContent = "Checking…";
+    const base = await crypto.subtle.importKey("raw", new TextEncoder().encode($$("p").value), "PBKDF2", false, ["deriveKey"]);
+    const key = await crypto.subtle.deriveKey({name: "PBKDF2", hash: "SHA-256", salt: unb64(SALT), iterations: ITER}, base, {name: "AES-GCM", length: 256}, false, ["decrypt"]);
+    let app; try { app = await open_(buf, key); } catch (x) { $$("m").textContent = "Wrong password"; return; }
+    try { await idb("readwrite", s => s.put(key, "key")); } catch (x) {}
+    start(app);
+  };
+})();
+</script></body></html>
